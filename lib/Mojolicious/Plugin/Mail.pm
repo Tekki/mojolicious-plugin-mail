@@ -10,7 +10,7 @@ use constant FROM     => 'test-mail-plugin@mojolicio.us';
 use constant CHARSET  => 'UTF-8';
 use constant ENCODING => 'base64';
 
-our $VERSION = '0.94';
+our $VERSION = '1.0';
 
 has conf => sub { +{} };
 
@@ -32,7 +32,7 @@ sub register {
 			# simple interface
 			unless (exists $args->{mail}) {
 				$args->{mail}->{ $_->[1] } = delete $args->{ $_->[0] }
-					for grep { $args->{ $_->[0] } }
+					for grep $args->{ $_->[0] },
 						[to   => 'To'  ], [from => 'From'], [reply_to => 'Reply-To'],
 						[cc   => 'Cc'  ], [bcc  => 'Bcc' ], [subject  => 'Subject' ],
 						[data => 'Data'], [type => 'Type'],
@@ -56,17 +56,17 @@ sub register {
 			my $howargs = $args->{howargs} || $conf->{howargs} || [];
 			$msg->send( $how, @$howargs ) unless $test;
 			
-			return $msg->as_string;
+			$msg->as_string;
 		},
 	);
 	
 	$app->helper(
 		render_mail => sub {
 			my $self = shift;
-			my $data = $self->render_partial(@_, format => 'mail');
+			my $data = $self->render(@_, format => 'mail', partial => 1);
 			
-			delete @{$self->stash}{ qw(partial mojo.content mojo.rendered format) };
-			return $data;
+			delete @{$self->stash}{ qw(partial cb format mojo.captures mojo.started mojo.content mojo.routed) };
+			$data;
 		},
 	);
 }
@@ -84,8 +84,8 @@ sub build {
 	
 	# tuning
 	
-	$mail->{From} ||= $conf->{from};
-	$mail->{Type} ||= $conf->{type};
+	$mail->{From} ||= $conf->{from} || '';
+	$mail->{Type} ||= $conf->{type} || '';
 	
 	if ($mail->{Data} && $mail->{Type} !~ /multipart/) {
 		$mail->{Encoding} ||= $encoding;
@@ -93,10 +93,12 @@ sub build {
 	}
 	
 	if ($mimeword) {
-		$_ = MIME::EncWords::encode_mimeword($_, $encode, $charset) for grep { _enc($_ => $charset); 1 } $mail->{Subject};
+		$_ = MIME::EncWords::encode_mimeword($_, $encode, $charset)
+			for grep { _enc($_ => $charset); 1 } $mail->{Subject}
+		;
 		
-		for (grep { $mail->{$_} } qw(From To Cc Bcc)) {
-			$mail->{$_} = join ",\n",
+		for (grep $mail->{$_}, qw(From To Cc Bcc)) {
+			$mail->{$_} = join ", ",
 				grep {
 					_enc($_ => $charset);
 					{
@@ -145,13 +147,13 @@ sub build {
 		@{$p->{attach} || []}
 	;
 	
-	return $msg;
+	$msg;
 }
 
 sub _enc($$) {
 	my $charset = $_[1] || CHARSET;
 	$_[0] = b($_[0])->encode('UTF-8')->to_string if $_[0] && $charset && $charset =~ /utf-8/i;
-	return $_[0];
+	$_[0];
 }
 
 1;
